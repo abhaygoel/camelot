@@ -136,7 +136,7 @@ class PDFHandler(object):
                     outfile.write(f)
 
     def parse(
-        self, flavor="lattice", suppress_stdout=False, layout_kwargs={}, **kwargs
+        self, flavor="lattice", suppress_stdout=False, layout_kwargs={}, save_entire_document=False, **kwargs
     ):
         """Extracts tables by calling parser.get_tables on all single
         page PDFs.
@@ -167,9 +167,32 @@ class PDFHandler(object):
                 os.path.join(tempdir, "page-{0}.pdf".format(p)) for p in self.pages
             ]
             parser = Lattice(**kwargs) if flavor == "lattice" else Stream(**kwargs)
-            for p in pages:
-                t = parser.extract_tables(
-                    p, suppress_stdout=suppress_stdout, layout_kwargs=layout_kwargs
-                )
-                tables.extend(t)
-        return TableList(sorted(tables))
+            if save_entire_document:
+                return self.perform_full_extract(parser, pages)
+            else:
+                for p in pages:
+                    t = parser.extract_tables(
+                        p, suppress_stdout=suppress_stdout, layout_kwargs=layout_kwargs
+                    )
+                    tables.extend(t)
+            return TableList(sorted(tables))
+
+    def perform_full_extract(self, parser, pages):
+        obs = []
+        for p in pages:
+            _extracted = parser.extract_tables(
+                p, suppress_stdout=False, layout_kwargs={}
+            )
+            toRemove = []
+            for container in parser.containers:
+                for obj in container._objs:
+                    if obj in parser.t_bbox["horizontal"] or obj in parser.t_bbox["vertical"]:
+                        toRemove.append(container)
+            toRemove = list(set(toRemove))
+            parser.containers[parser.containers.index(toRemove[0])] = _extracted[0] # may cause an issue down the road
+            for obj in toRemove:
+                try:
+                    parser.containers.remove(obj)
+                except ValueError as ve:
+                    continue
+        return parser.containers
