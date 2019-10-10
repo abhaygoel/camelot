@@ -160,6 +160,7 @@ class PDFHandler(object):
 
         """
         tables = []
+        doc = []
         with TemporaryDirectory() as tempdir:
             for p in self.pages:
                 self._save_page(self.filepath, p, tempdir)
@@ -168,31 +169,37 @@ class PDFHandler(object):
             ]
             parser = Lattice(**kwargs) if flavor == "lattice" else Stream(**kwargs)
             if save_entire_document:
-                return self.perform_full_extract(parser, pages)
+                for p in pages:
+                    out = self.perform_full_extract(parser, p)
+                    doc.extend(out)
             else:
                 for p in pages:
                     t = parser.extract_tables(
                         p, suppress_stdout=suppress_stdout, layout_kwargs=layout_kwargs
                     )
                     tables.extend(t)
+            if save_entire_document:
+                return doc
             return TableList(sorted(tables))
 
-    def perform_full_extract(self, parser, pages):
+    def perform_full_extract(self, parser, page):
         obs = []
-        for p in pages:
-            _extracted = parser.extract_tables(
-                p, suppress_stdout=False, layout_kwargs={}
-            )
-            toRemove = []
-            for container in parser.containers:
-                for obj in container._objs:
-                    if obj in parser.t_bbox["horizontal"] or obj in parser.t_bbox["vertical"]:
-                        toRemove.append(container)
-            toRemove = list(set(toRemove))
-            parser.containers[parser.containers.index(toRemove[0])] = _extracted[0] # may cause an issue down the road
-            for obj in toRemove:
-                try:
-                    parser.containers.remove(obj)
-                except ValueError as ve:
-                    continue
-        return parser.containers
+        _extracted = parser.extract_tables(
+            page, suppress_stdout=False, layout_kwargs={}
+        )
+        if len(_extracted) != 0:
+            if hasattr(parser, "t_bbox"):
+                toRemove = []
+                for container in parser.containers:
+                    for obj in container._objs:
+                        if obj in parser.t_bbox["horizontal"] or obj in parser.t_bbox["vertical"]:
+                            toRemove.append(container)
+                toRemove = list(set(toRemove))
+                parser.containers[parser.containers.index(toRemove[0])] = _extracted[0] # may cause an issue down the road
+                for obj in toRemove:
+                    try:
+                        parser.containers.remove(obj)
+                    except ValueError as ve:
+                        continue
+        obs.append(parser.containers)
+        return obs
